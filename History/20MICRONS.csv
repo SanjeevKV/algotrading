@@ -1,0 +1,4 @@
+symbol,name,buy_price,quantity,selling_price_threshold,trigger_price,trigger
+20MICRONS,20MICRONS,95.68,12,97.24,98,0
+20MICRONS,20MICRONS,100,10,102.65,103.4,0
+20MICRONS,20MICRONS,200,10,203,205,0
