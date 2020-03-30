@@ -226,9 +226,11 @@ def process_current_price(config,company):
 
 def process_approved_buy_orders(config,company):
     #API call to check the success of order_id and the following code is executed only in case of success
-    df = pd.read_csv( os.path.join(Locations.BOUGHT_ORDERS, company + Locations.CSV_EXTENSION) ) if os.path.isfile( os.path.join(Locations.BOUGHT_ORDERS, company + Locations.CSV_EXTENSION) ) else []
+    df = pd.read_csv( os.path.join(Locations.BOUGHT_ORDERS, company + Locations.CSV_EXTENSION) ) if \
+        os.path.isfile( os.path.join(Locations.BOUGHT_ORDERS, company + Locations.CSV_EXTENSION) ) else []
     historical_orders = get_historical_orders(company,1)
-    historical_orders = historical_orders[[Keywords.SYMBOL,Keywords.BUY_PRICE,Keywords.QUANTITY,Keywords.SELL_PRICE_THRESHOLD,Keywords.TRIGGER_PRICE,Keywords.TRIGGER]]
+    historical_orders = historical_orders[[Keywords.SYMBOL,Keywords.BUY_PRICE,Keywords.QUANTITY,
+                            Keywords.SELL_PRICE_THRESHOLD,Keywords.TRIGGER_PRICE,Keywords.TRIGGER]]
     if len(df) > 0:
         buy_price = df[Keywords.PRICE][0]
         quantity = df[Keywords.QUANTITY][0]
