@@ -102,12 +102,16 @@ def delete_pending_redundant_orders(stock_variables, company, ltp):
     lower_than_ltp = orders_to_retain[orders_to_retain[Keywords.PRICE] < ltp].sort_values(Keywords.PRICE, ascending = False)
 
     if len(higher_than_ltp) > 1:
-        higher_than_ltp = higher_than_ltp.iloc[0]
+        higher_than_ltp = higher_than_ltp.iloc[0,:]
 
     if len(lower_than_ltp) > 1:
-        lower_than_ltp = lower_than_ltp.iloc[0]
+        lower_than_ltp = lower_than_ltp.iloc[0,:]
 
-    orders_to_retain = pd.concat((higher_than_ltp, lower_than_ltp))
+    orders_to_retain = pd.DataFrame([], columns=Keywords.PENDING_ORDER_COLUMNS)
+    orders_to_retain = orders_to_retain.append(higher_than_ltp)
+    orders_to_retain = orders_to_retain.append(lower_than_ltp)
+    #orders_to_retain = higher_than_ltp.append(lower_than_ltp, ignore_index = True)#pd.concat((higher_than_ltp, lower_than_ltp), sort = True)
+    print(orders_to_retain)
     orders_to_delete = pending_orders_company[~pending_orders_company[Keywords.ORDER_ID].isin(orders_to_retain[Keywords.ORDER_ID])]
     
     update_company(company, Locations.PENDING_ORDERS, orders_to_retain)
@@ -121,7 +125,7 @@ def add_pending_approved_orders(company):
     """
     approved_orders_company = get_approved_orders(company)
     approved_buffer_orders_company = get_approved_buffer_orders(company)
-    approved_orders_company = pd.concat([approved_orders_company, approved_buffer_orders_company], axis = 0)
+    approved_orders_company = pd.concat( (approved_orders_company, approved_buffer_orders_company), axis = 0, sort = True)
     update_company(company, Locations.APPROVED_ORDERS, approved_orders_company)
     return approved_orders_company
 
@@ -148,7 +152,7 @@ def square_off_approved_orders(company):
         matching_bought_orders = bought_orders[bought_orders[Keywords.PRICE] < mean_sold_price]
         sum_bought_quantity = matching_bought_orders[Keywords.QUANTITY].sum()
         if sum_bought_quantity == sum_sold_quantity:
-            orders_to_drop = pd.concat((matching_bought_orders[Keywords.ORDER_ID], sold_orders[Keywords.ORDER_ID]))
+            orders_to_drop = pd.concat((matching_bought_orders[Keywords.ORDER_ID], sold_orders[Keywords.ORDER_ID]), sort = True)
             squared_off_approved_orders = approved_orders_company[approved_orders_company[Keywords.ORDER_ID].isin(orders_to_drop)]
             approved_orders_company = approved_orders_company[~approved_orders_company[Keywords.ORDER_ID].isin(orders_to_drop)]
             update_company(company, Locations.SQUARED_ORDERS, square_off_approved_orders)
@@ -176,8 +180,18 @@ def place_new_order(stock_variables, company, pending_orders_company, ltp, order
     else:
         trigger_price = price + price * float(stock_variables[company][Keywords.TRIGGER_DELTA])
 
-    pending_orders_company = pd.concat( (pending_orders_company,pd.DataFrame([ [company, order_id, price, quantity,
-                                 trigger_price, order_type] ], columns=Keywords.PENDING_ORDER_COLUMNS) ) )
+    order_to_append = pd.Series([company, order_id, price, quantity,
+                                 trigger_price, order_type], index=Keywords.PENDING_ORDER_COLUMNS)
+    
+    print(order_to_append)
+    pending_prices = pending_orders_company[Keywords.PRICE]
+    for pen_price in pending_prices:
+        difference_from_pen = abs(pen_price - price) / min(pen_price, price)
+        if difference_from_pen < float(stock_variables[company][Keywords.PROFIT_DELTA]):
+            return pending_orders_company
+
+    pending_orders_company = pending_orders_company.append( order_to_append , ignore_index = True)#pd.concat( (pending_orders_company,pd.DataFrame([ [company, order_id, price, quantity,
+                                 #trigger_price, order_type] ], columns=Keywords.PENDING_ORDER_COLUMNS) ), sort = True )
     return  pending_orders_company
 
 def out_of_range(stock_variables, company, price, ltp):
@@ -187,6 +201,7 @@ def out_of_range(stock_variables, company, price, ltp):
     patience = float(stock_variables[company][Keywords.PATIENCE])
     price_delta = float(stock_variables[company][Keywords.PRICE_DELTA])
     diff = abs(ltp - price) / price
+    print("Difference****", price_delta)
     if diff > patience * price_delta:
         return True
     return False
@@ -226,7 +241,7 @@ def  add_pending_orders(stock_variables,company, ltp):
         pending_orders_company = place_new_order(stock_variables, company, pending_orders_company, ltp, Keywords.BUY_ORDER, price_2)
 
     elif len(approved_orders_company) == 1:
-        existing_order_price = approved_orders_company[Keywords.PRICE]
+        existing_order_price = approved_orders_company[Keywords.PRICE][0]
         higher_buy_price = existing_order_price + existing_order_price * float(stock_variables[company][Keywords.PRICE_DELTA])
         lower_buy_price = existing_order_price - existing_order_price * float(stock_variables[company][Keywords.PRICE_DELTA])
         if out_of_range(stock_variables, company, existing_order_price, ltp):
@@ -281,30 +296,30 @@ def  add_pending_orders(stock_variables,company, ltp):
     return pending_orders_company
 
 def approve_order(company):
-    order_id = int(input("Enter OrderID which you want to approve"))
-    executed_price = float(input("Enter the executed price at which the order was executed"))
+    order_id = int(input("Enter OrderID which you want to approve\n"))
+    executed_price = float(input("Enter the executed price at which the order was executed\n"))
     pending_orders_company = get_pending_orders(company)
     approved_buffer_orders_company = get_approved_buffer_orders(company)
     executed_order = pending_orders_company[pending_orders_company[Keywords.ORDER_ID] == order_id]
     executed_order[Keywords.EXECUTED_PRICE] = executed_price
-    approved_buffer_orders_company = pd.concat((approved_buffer_orders_company, executed_order))
+    approved_buffer_orders_company = pd.concat((approved_buffer_orders_company, executed_order), sort = True)
     update_company(company, Locations.APPROVED_BUFFER_ORDERS, approved_buffer_orders_company)
     return approved_buffer_orders_company
 
 
 def process(stock_variables, company):
     ltp = get_ltp(company)
+    add_pending_approved_orders(company)
     delete_pending_approved_orders(company)
-    delete_pending_redundant_orders(stock_variables, company, ltp)
     delete_approved_buffer_orders(company)
     square_off_approved_orders(company)
     add_pending_orders(stock_variables,company, ltp)
-    add_pending_approved_orders(company)
+    delete_pending_redundant_orders(stock_variables, company, ltp)
 
 def update_company(company, table, updated_company):
     current_table = pd.read_csv(table)
     current_table_trimmed = current_table[current_table[Keywords.SYMBOL] != company]
-    updated_table = pd.concat( (current_table_trimmed, updated_company) )
+    updated_table = pd.concat( (current_table_trimmed, updated_company), sort = True )
     updated_table.to_csv(table, index = False)
 
 # def show_company(company, table):

@@ -1,1 +1,2 @@
-symbol,order_id,price,executed_price,quantity,trigger_price,order_type
+executed_price,order_id,order_type,price,quantity,symbol,trigger_price
+97.45,37303,buy,97.5,10.256410256410255,ACC,97.4025

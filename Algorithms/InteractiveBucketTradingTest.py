@@ -34,4 +34,4 @@ if __name__ == '__main__':
                 output = bt.get_squared_orders(company)
             print(output)
         elif response == 3:
-            bt.approve_order(company, Locations.APPROVED_BUFFER_ORDERS)
+            bt.approve_order(company)
