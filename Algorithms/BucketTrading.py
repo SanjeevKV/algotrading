@@ -75,11 +75,14 @@ def delete_pending_approved_orders(company):
     """
         Deletes orders from pending_orders once they are approved and populated in ApprovedBuffer
     """
-    approved_buffer_orders_company = get_approved_buffer_orders(company)[Keywords.ORDER_ID]
-    pending_orders_company = get_pending_orders(company)
-    pending_orders_company = pending_orders_company[~pending_orders_company[Keywords.ORDER_ID].isin(approved_buffer_orders_company)]
-    update_company(company, Locations.PENDING_ORDERS, pending_orders_company)
-    return pending_orders_company
+    approved_buffer_orders_company = get_approved_buffer_orders(company)#get_approved_buffer_orders(company)[Keywords.ORDER_ID]
+    #pending_orders_company = get_pending_orders(company)
+    if len(approved_buffer_orders_company) > 0:
+        print("Deleting pending orders")
+        pending_orders_company = pd.DataFrame([], columns=Keywords.PENDING_ORDER_COLUMNS) #pending_orders_company[~pending_orders_company[Keywords.ORDER_ID].isin(approved_buffer_orders_company)]
+        update_company(company, Locations.PENDING_ORDERS, pending_orders_company)
+        #sys.exit()
+        return pending_orders_company
 
 def delete_pending_redundant_orders(stock_variables, company, ltp):
     """
@@ -155,7 +158,7 @@ def square_off_approved_orders(company):
             orders_to_drop = pd.concat((matching_bought_orders[Keywords.ORDER_ID], sold_orders[Keywords.ORDER_ID]), sort = True)
             squared_off_approved_orders = approved_orders_company[approved_orders_company[Keywords.ORDER_ID].isin(orders_to_drop)]
             approved_orders_company = approved_orders_company[~approved_orders_company[Keywords.ORDER_ID].isin(orders_to_drop)]
-            update_company(company, Locations.SQUARED_ORDERS, square_off_approved_orders)
+            update_company(company, Locations.SQUARED_ORDERS, squared_off_approved_orders)
             update_company(company, Locations.APPROVED_ORDERS, approved_orders_company)
             return square_off_approved_orders, approved_orders_company
         else:
@@ -184,7 +187,7 @@ def place_new_order(stock_variables, company, pending_orders_company, ltp, order
                                  trigger_price, order_type], index=Keywords.PENDING_ORDER_COLUMNS)
     
     print(order_to_append)
-    pending_prices = pending_orders_company[Keywords.PRICE]
+    pending_prices = pending_orders_company[pending_orders_company[Keywords.ORDER_TYPE] == order_type][Keywords.PRICE]
     for pen_price in pending_prices:
         difference_from_pen = abs(pen_price - price) / min(pen_price, price)
         if difference_from_pen < float(stock_variables[company][Keywords.PROFIT_DELTA]):
@@ -245,7 +248,7 @@ def  add_pending_orders(stock_variables,company, ltp):
         higher_buy_price = existing_order_price + existing_order_price * float(stock_variables[company][Keywords.PRICE_DELTA])
         lower_buy_price = existing_order_price - existing_order_price * float(stock_variables[company][Keywords.PRICE_DELTA])
         if out_of_range(stock_variables, company, existing_order_price, ltp):
-            price_1, price_2 = get_prices_in_range(stock_variables, company, pending_orders_company, existing_order_price, ltp)
+            price_1, price_2 = get_prices_in_range(stock_variables, company, existing_order_price, ltp)
             pending_orders_company = place_new_order(stock_variables, company, pending_orders_company, ltp, Keywords.BUY_ORDER, price_1)
             pending_orders_company = place_new_order(stock_variables, company, pending_orders_company, ltp, Keywords.BUY_ORDER, price_2)
         else:
@@ -255,13 +258,15 @@ def  add_pending_orders(stock_variables,company, ltp):
     elif len(approved_orders_company) > 1:
         #Lots bought at a price lesser than ltp
         profitable_lots_at_ltp = approved_orders_company[(approved_orders_company[Keywords.ORDER_TYPE] == Keywords.BUY_ORDER) &
-                                     (approved_orders_company[Keywords.PRICE] < ltp)].sort_values(Keywords.PRICE, ascending = False)
+                                     (approved_orders_company[Keywords.PRICE] < ltp)].sort_values(Keywords.PRICE, ascending = False).reset_index()
         #Lots bought at a price higher than ltp
         unprofitable_lots_at_ltp = approved_orders_company[(approved_orders_company[Keywords.ORDER_TYPE] == Keywords.BUY_ORDER) &
-                                     (approved_orders_company[Keywords.PRICE] > ltp)].sort_values(Keywords.PRICE, ascending = True)
+                                     (approved_orders_company[Keywords.PRICE] > ltp)].sort_values(Keywords.PRICE, ascending = True).reset_index()
         
         if len(profitable_lots_at_ltp) > 0:
             #At least one lot is bought at a price lesser than the ltp
+            buy_price = -1
+            sell_price = -1
             if len(unprofitable_lots_at_ltp) == 0:
                 #All lots are bought at a price lesser than ltp
                 buy_price = profitable_lots_at_ltp[Keywords.PRICE][0] + \
@@ -272,8 +277,15 @@ def  add_pending_orders(stock_variables,company, ltp):
             sell_quantity = profitable_lots_at_ltp[Keywords.QUANTITY].sum()
             sell_price = profitable_lots_at_ltp[Keywords.PRICE][0] + \
                             profitable_lots_at_ltp[Keywords.PRICE][0] * float(stock_variables[company][Keywords.PROFIT_DELTA])
-            buy_price = profitable_lots_at_ltp[Keywords.PRICE][-1] - \
-                            profitable_lots_at_ltp[Keywords.PRICE][-1] * float(stock_variables[company][Keywords.PRICE_DELTA])
+
+            print("Length of unprofitable approved orders ", len(unprofitable_lots_at_ltp))
+            if buy_price == -1:
+                #lots_place_holder = pd.DataFrame([], columns=Keywords.EXECUTED_ORDER_COLUMS)
+                #unprofitable_lots_at_ltp = lots_place_holder.append(unprofitable_lots_at_ltp)
+                print(unprofitable_lots_at_ltp)
+                buy_price = unprofitable_lots_at_ltp[Keywords.PRICE][ len(unprofitable_lots_at_ltp) - 1] + \
+                                unprofitable_lots_at_ltp[Keywords.PRICE][ len(unprofitable_lots_at_ltp) - 1] * float(stock_variables[company][Keywords.PRICE_DELTA])
+
         elif len(unprofitable_lots_at_ltp) > 0:
             sell_quantity = unprofitable_lots_at_ltp[Keywords.QUANTITY][0]
             sell_price = unprofitable_lots_at_ltp[Keywords.PRICE][0] + \
@@ -312,7 +324,9 @@ def process(stock_variables, company):
     add_pending_approved_orders(company)
     delete_pending_approved_orders(company)
     delete_approved_buffer_orders(company)
+
     square_off_approved_orders(company)
+
     add_pending_orders(stock_variables,company, ltp)
     delete_pending_redundant_orders(stock_variables, company, ltp)
 

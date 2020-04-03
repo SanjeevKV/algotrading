@@ -5,4 +5,4 @@ ACC :
   price_delta : 0.05 # Between two consecutive lots in percentage / 100
   profit_delta : 0.025 # Between a lot and LTP in percentage / 100
   trigger_delta : 0.001 # Between Limit price and trigger price / 100
-  patience : 2 # Number of buckets after which the pending orders are considered redundant (unlikely to reach)
+  patience : 10 # Number of buckets after which the pending orders are considered redundant (unlikely to reach)
