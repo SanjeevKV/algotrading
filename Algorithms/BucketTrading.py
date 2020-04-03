@@ -212,7 +212,7 @@ def place_new_order(stock_variables, company, pending_buffer_orders_company, ltp
     order_id  = randint(0,50000)
 
     if quantity == -1:
-        quantity = float(stock_variables[company][Keywords.PRINCIPAL]) / price
+        quantity = int (float(stock_variables[company][Keywords.PRINCIPAL]) / price )
     
     if order_type  == Keywords.BUY_ORDER:
         trigger_price = price - price * float(stock_variables[company][Keywords.TRIGGER_DELTA])
@@ -222,7 +222,7 @@ def place_new_order(stock_variables, company, pending_buffer_orders_company, ltp
     order_to_append = pd.Series([company, order_id, price, quantity,
                                  trigger_price, order_type], index=Keywords.PENDING_ORDER_COLUMNS)
     
-    print(order_to_append)
+    print("Order to Append\n", order_to_append)
     pending_prices = pending_orders_company[pending_orders_company[Keywords.ORDER_TYPE] == order_type][Keywords.PRICE]
     for pen_price in pending_prices:
         difference_from_pen = abs(pen_price - price) / min(pen_price, price)
@@ -311,6 +311,7 @@ def  add_pending_buffer_orders(stock_variables,company, ltp):
                 #At least one lot should always be in contention
                 profitable_lots_at_ltp = profitable_lots_at_ltp[1:]
 
+            profitable_lots_at_ltp.reset_index(inplace = True)
             sell_quantity = profitable_lots_at_ltp[Keywords.QUANTITY].sum()
             sell_price = profitable_lots_at_ltp[Keywords.PRICE][0] + \
                             profitable_lots_at_ltp[Keywords.PRICE][0] * float(stock_variables[company][Keywords.PROFIT_DELTA])
@@ -324,18 +325,21 @@ def  add_pending_buffer_orders(stock_variables,company, ltp):
                                 unprofitable_lots_at_ltp[Keywords.PRICE][ len(unprofitable_lots_at_ltp) - 1] * float(stock_variables[company][Keywords.PRICE_DELTA])
 
         elif len(unprofitable_lots_at_ltp) > 0:
+            unprofitable_lots_at_ltp.reset_index(inplace = True)
             sell_quantity = unprofitable_lots_at_ltp[Keywords.QUANTITY][0]
             sell_price = unprofitable_lots_at_ltp[Keywords.PRICE][0] + \
                             unprofitable_lots_at_ltp[Keywords.PRICE][0] * float(stock_variables[company][Keywords.PROFIT_DELTA])
             buy_price = unprofitable_lots_at_ltp[Keywords.PRICE][0] - \
                             unprofitable_lots_at_ltp[Keywords.PRICE][0] * float(stock_variables[company][Keywords.PRICE_DELTA])
 
-        if out_of_range(stock_variables, company,buy_price, ltp):
+        if out_of_range(stock_variables, company,buy_price, ltp) or out_of_range(stock_variables, company, sell_price, ltp):
+            print("Out of Range, Adding 2 Buy Orders and 1 Sell Order")
             price_1, price_2 = get_prices_in_range(stock_variables, company, buy_price, ltp)
             pending_buffer_orders_company = place_new_order(stock_variables, company, pending_buffer_orders_company, ltp, Keywords.BUY_ORDER, price_1)
             pending_buffer_orders_company = place_new_order(stock_variables, company, pending_buffer_orders_company, ltp, Keywords.BUY_ORDER, price_2)
             pending_buffer_orders_company = place_new_order(stock_variables, company, pending_buffer_orders_company, ltp, Keywords.SELL_ORDER, price_1, sell_quantity)
-        else:    
+        else:
+            print("In range, Adding 1 Buy Order and 1 Sell Order\n")    
             pending_buffer_orders_company = place_new_order(stock_variables, company, pending_buffer_orders_company, ltp, Keywords.BUY_ORDER, buy_price)
             pending_buffer_orders_company = place_new_order(stock_variables, company, pending_buffer_orders_company, ltp, Keywords.SELL_ORDER, sell_price, sell_quantity)
         
