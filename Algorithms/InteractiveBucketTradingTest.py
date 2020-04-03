@@ -16,11 +16,15 @@ if __name__ == '__main__':
         stock_variables = yaml.full_load(file)
     response = 0
     while response != 4 :
+
         company = input("Enter the symbol of the company:\n")
+
+        bt.process_ltp_independent(company)
+
         response = int( input("1.Process LTP\n2.View Tables\n3.Approve Orders\n4.Exit\n") )
         #print(response, type(response))
         if response == 1:
-            bt.process(stock_variables,company)
+            bt.process_ltp(stock_variables,company)
         elif response == 2:
             table = int( input("Table 1. Pending Orders\n2.Approved Buffer\n3.Approved\n4.Squared Off\n") )
             output = 1
@@ -35,3 +39,5 @@ if __name__ == '__main__':
             print(output)
         elif response == 3:
             bt.approve_order(company)
+
+        bt.process_ltp_independent(company)

@@ -26,7 +26,7 @@ def get_ltp(company):
 def get_pending_orders(company):
     """
         Returns all the pending orders corresponding to a particular company
-        These are the orders which are placed with the broker but not yet executed
+        These are the orders which are placed in the stock exchange but not yet executed
     """
     #print( os.stat(Locations.PENDING_ORDERS).st_size )
     pending_orders = pd.read_csv(Locations.PENDING_ORDERS) if \
@@ -35,6 +35,16 @@ def get_pending_orders(company):
     pending_orders_company = pending_orders[pending_orders[Keywords.SYMBOL] == company]
     return pending_orders_company
 
+def get_pending_buffer_orders(company):
+    """
+        Returns all the orders yet to be placed in the stock exchange
+    """
+    pending_buffer_orders = pd.read_csv(Locations.PENDING_BUFFER_ORDERS) if \
+                        os.path.isfile( Locations.PENDING_BUFFER_ORDERS ) and os.stat(Locations.PENDING_BUFFER_ORDERS).st_size > 0 else \
+                        pd.DataFrame(columns=Keywords.PENDING_ORDER_COLUMNS)
+    pending_buffer_orders_company = pending_buffer_orders[pending_buffer_orders[Keywords.SYMBOL] == company]
+    return pending_buffer_orders_company
+
 def get_approved_orders(company):
     """
         Returns all the approved orders corresponding to a particular company
@@ -42,7 +52,7 @@ def get_approved_orders(company):
         Square off - Happens when a buy order meets its profitable sell order or vice versa in case of short-positions
     """
     approved_orders = pd.read_csv(Locations.APPROVED_ORDERS) if \
-                        os.path.isfile( os.path.join(Locations.APPROVED_ORDERS) ) and os.stat(Locations.PENDING_ORDERS).st_size > 0 else \
+                        os.path.isfile( os.path.join(Locations.APPROVED_ORDERS) ) and os.stat(Locations.APPROVED_ORDERS).st_size > 0 else \
                         pd.DataFrame(columns=Keywords.EXECUTED_ORDER_COLUMS)
     approved_orders_company = approved_orders[approved_orders[Keywords.SYMBOL] == company]
     return approved_orders_company
@@ -66,13 +76,14 @@ def get_squared_orders(company):
         Square off - Happens when a buy order meets its profitable sell order or vice versa in case of short-positions
     """
     squared_orders = pd.read_csv(Locations.SQUARED_ORDERS) if \
-                        os.path.isfile( os.path.join(Locations.SQUARED_ORDERS) ) and os.stat(Locations.PENDING_ORDERS).st_size > 0 else \
+                        os.path.isfile( os.path.join(Locations.SQUARED_ORDERS) ) and os.stat(Locations.SQUARED_ORDERS).st_size > 0 else \
                         pd.DataFrame(columns=Keywords.EXECUTED_ORDER_COLUMS)
     squared_orders_company = squared_orders[squared_orders[Keywords.SYMBOL] == company]
     return squared_orders_company
 
 def delete_pending_approved_orders(company):
     """
+        LTP independent function
         Deletes orders from pending_orders once they are approved and populated in ApprovedBuffer
     """
     approved_buffer_orders_company = get_approved_buffer_orders(company)#get_approved_buffer_orders(company)[Keywords.ORDER_ID]
@@ -122,8 +133,31 @@ def delete_pending_redundant_orders(stock_variables, company, ltp):
     print("Redundant Orders to delete\n", orders_to_delete)
     return orders_to_delete, pending_orders_company
 
+def delete_pending_buffer_orders(company):
+    """
+        LTP independent function
+        Deletes pending buffer orders once they are placed in the Stock Exchange - Moved to pending
+    """
+    pending_buffer_orders_company = pd.DataFrame([], columns=Keywords.PENDING_ORDER_COLUMNS)#get_pending_buffer_orders(company)
+    update_company(company, Locations.PENDING_BUFFER_ORDERS, pending_buffer_orders_company)
+    return pending_buffer_orders_company
+
+
+def add_pending_orders(company):
+    """
+        LTP independent function
+        Takes pending orders from PendingBuffer and places them in Pending - Basically  places orders
+    """
+    pending_orders_company = get_pending_orders(company)
+    pending_buffer_orders_company = get_pending_buffer_orders(company)
+    if len(pending_buffer_orders_company) > 0:
+        pending_orders_company = pending_orders_company.append(pending_buffer_orders_company, ignore_index = True)
+        update_company(company, Locations.PENDING_ORDERS, pending_orders_company)
+    return pending_orders_company
+
 def add_pending_approved_orders(company):
     """
+        LTP indpendent function
         Takes orders from ApprovedBuffer and adds them to Approved
     """
     approved_orders_company = get_approved_orders(company)
@@ -134,6 +168,7 @@ def add_pending_approved_orders(company):
 
 def delete_approved_buffer_orders(company):
     """
+        LTP independent function
         Deletes orders from ApprovedBuffer - Typically done after the orders from Pending are deleted and added to Approved
     """
     approved_buffer_orders_company = get_approved_buffer_orders(company)
@@ -143,6 +178,7 @@ def delete_approved_buffer_orders(company):
 
 def square_off_approved_orders(company):
     """
+        LTP independent function
         Maps buy orders of a company with the corresponding sell orders or vice versa once both the kinda orders are present in Approved
         Deletes the profitable buy orders once a corresponding matching (quantity) sold order is found
     """
@@ -164,14 +200,14 @@ def square_off_approved_orders(company):
         else:
             raise ValueError(sum_sold_quantity, "Sold order does not fully cancel the profitable Bought orders", sum_bought_quantity)
 
-def place_new_order(stock_variables, company, pending_orders_company, ltp, order_type, price = -1, quantity = -1):
+def place_new_order(stock_variables, company, pending_buffer_orders_company, ltp, order_type, price = -1, quantity = -1):
     #ltp = get_ltp(company)
-    #pending_orders_company = get_pending_orders(company)
+    pending_orders_company = get_pending_orders(company)
     difference_from_ltp = abs(ltp - price) / min(ltp, price)
 
     if difference_from_ltp > float(stock_variables[company][Keywords.PRICE_DELTA]) * \
                                      float(stock_variables[company][Keywords.PATIENCE]):
-                                        return pending_orders_company
+                                        return pending_buffer_orders_company
 
     order_id  = randint(0,50000)
 
@@ -191,11 +227,11 @@ def place_new_order(stock_variables, company, pending_orders_company, ltp, order
     for pen_price in pending_prices:
         difference_from_pen = abs(pen_price - price) / min(pen_price, price)
         if difference_from_pen < float(stock_variables[company][Keywords.PROFIT_DELTA]):
-            return pending_orders_company
+            return pending_buffer_orders_company
 
-    pending_orders_company = pending_orders_company.append( order_to_append , ignore_index = True)#pd.concat( (pending_orders_company,pd.DataFrame([ [company, order_id, price, quantity,
+    pending_buffer_orders_company = pending_buffer_orders_company.append( order_to_append , ignore_index = True)#pd.concat( (pending_orders_company,pd.DataFrame([ [company, order_id, price, quantity,
                                  #trigger_price, order_type] ], columns=Keywords.PENDING_ORDER_COLUMNS) ), sort = True )
-    return  pending_orders_company
+    return  pending_buffer_orders_company
 
 def out_of_range(stock_variables, company, price, ltp):
     """
@@ -223,13 +259,14 @@ def get_prices_in_range(stock_variables, company, price, ltp):
     else:
         return (price - price * p2 * price_delta, price - price * p1 * price_delta)
 
-def  add_pending_orders(stock_variables,company, ltp):
+def  add_pending_buffer_orders(stock_variables,company, ltp):
     """
         Place new orders for a company, if required
     """
 
     #ltp = get_ltp(company)
     pending_orders_company = get_pending_orders(company)
+    pending_buffer_orders_company = get_pending_buffer_orders(company)
     approved_orders_company = get_approved_orders(company)
     #print(stock_variables[company])
     price_delta_company = float(stock_variables[company][Keywords.PRICE_DELTA])
@@ -240,8 +277,8 @@ def  add_pending_orders(stock_variables,company, ltp):
     if len(approved_orders_company) == 0 and len(pending_orders_company) == 0:
         price_1 = ltp + ltp * float(stock_variables[company][Keywords.PROFIT_DELTA])
         price_2 = ltp - ltp * float(stock_variables[company][Keywords.PROFIT_DELTA])
-        pending_orders_company = place_new_order(stock_variables, company, pending_orders_company, ltp, Keywords.BUY_ORDER, price_1)
-        pending_orders_company = place_new_order(stock_variables, company, pending_orders_company, ltp, Keywords.BUY_ORDER, price_2)
+        pending_buffer_orders_company = place_new_order(stock_variables, company, pending_buffer_orders_company, ltp, Keywords.BUY_ORDER, price_1)
+        pending_buffer_orders_company = place_new_order(stock_variables, company, pending_buffer_orders_company, ltp, Keywords.BUY_ORDER, price_2)
 
     elif len(approved_orders_company) == 1:
         existing_order_price = approved_orders_company[Keywords.PRICE][0]
@@ -249,11 +286,11 @@ def  add_pending_orders(stock_variables,company, ltp):
         lower_buy_price = existing_order_price - existing_order_price * float(stock_variables[company][Keywords.PRICE_DELTA])
         if out_of_range(stock_variables, company, existing_order_price, ltp):
             price_1, price_2 = get_prices_in_range(stock_variables, company, existing_order_price, ltp)
-            pending_orders_company = place_new_order(stock_variables, company, pending_orders_company, ltp, Keywords.BUY_ORDER, price_1)
-            pending_orders_company = place_new_order(stock_variables, company, pending_orders_company, ltp, Keywords.BUY_ORDER, price_2)
+            pending_buffer_orders_company = place_new_order(stock_variables, company, pending_buffer_orders_company, ltp, Keywords.BUY_ORDER, price_1)
+            pending_buffer_orders_company = place_new_order(stock_variables, company, pending_buffer_orders_company, ltp, Keywords.BUY_ORDER, price_2)
         else:
-            pending_orders_company = place_new_order(stock_variables, company, pending_orders_company, ltp, Keywords.BUY_ORDER, higher_buy_price)
-            pending_orders_company = place_new_order(stock_variables, company, pending_orders_company, ltp, Keywords.BUY_ORDER, lower_buy_price)    
+            pending_buffer_orders_company = place_new_order(stock_variables, company, pending_buffer_orders_company, ltp, Keywords.BUY_ORDER, higher_buy_price)
+            pending_buffer_orders_company = place_new_order(stock_variables, company, pending_buffer_orders_company, ltp, Keywords.BUY_ORDER, lower_buy_price)    
 
     elif len(approved_orders_company) > 1:
         #Lots bought at a price lesser than ltp
@@ -295,17 +332,17 @@ def  add_pending_orders(stock_variables,company, ltp):
 
         if out_of_range(stock_variables, company,buy_price, ltp):
             price_1, price_2 = get_prices_in_range(stock_variables, company, buy_price, ltp)
-            pending_orders_company = place_new_order(stock_variables, company, pending_orders_company, ltp, Keywords.BUY_ORDER, price_1)
-            pending_orders_company = place_new_order(stock_variables, company, pending_orders_company, ltp, Keywords.BUY_ORDER, price_2)
-            pending_orders_company = place_new_order(stock_variables, company, pending_orders_company, ltp, Keywords.SELL_ORDER, price_1, sell_quantity)
+            pending_buffer_orders_company = place_new_order(stock_variables, company, pending_buffer_orders_company, ltp, Keywords.BUY_ORDER, price_1)
+            pending_buffer_orders_company = place_new_order(stock_variables, company, pending_buffer_orders_company, ltp, Keywords.BUY_ORDER, price_2)
+            pending_buffer_orders_company = place_new_order(stock_variables, company, pending_buffer_orders_company, ltp, Keywords.SELL_ORDER, price_1, sell_quantity)
         else:    
-            pending_orders_company = place_new_order(stock_variables, company, pending_orders_company, ltp, Keywords.BUY_ORDER, buy_price)
-            pending_orders_company = place_new_order(stock_variables, company, pending_orders_company, ltp, Keywords.SELL_ORDER, sell_price, sell_quantity)
+            pending_buffer_orders_company = place_new_order(stock_variables, company, pending_buffer_orders_company, ltp, Keywords.BUY_ORDER, buy_price)
+            pending_buffer_orders_company = place_new_order(stock_variables, company, pending_buffer_orders_company, ltp, Keywords.SELL_ORDER, sell_price, sell_quantity)
         
 
-    update_company(company, Locations.PENDING_ORDERS, pending_orders_company)
-    print("Added Pending Orders\n", pending_orders_company)
-    return pending_orders_company
+    update_company(company, Locations.PENDING_BUFFER_ORDERS, pending_buffer_orders_company)
+    print("Added Pending Buffer Orders\n", pending_orders_company)
+    return pending_buffer_orders_company
 
 def approve_order(company):
     order_id = int(input("Enter OrderID which you want to approve\n"))
@@ -319,16 +356,21 @@ def approve_order(company):
     return approved_buffer_orders_company
 
 
-def process(stock_variables, company):
+def process_ltp(stock_variables, company):
     ltp = get_ltp(company)
+
+    add_pending_buffer_orders(stock_variables,company, ltp)
+    delete_pending_redundant_orders(stock_variables, company, ltp)
+
+def process_ltp_independent(company):
     add_pending_approved_orders(company)
     delete_pending_approved_orders(company)
     delete_approved_buffer_orders(company)
 
     square_off_approved_orders(company)
 
-    add_pending_orders(stock_variables,company, ltp)
-    delete_pending_redundant_orders(stock_variables, company, ltp)
+    add_pending_orders(company)
+    delete_pending_buffer_orders(company)
 
 def update_company(company, table, updated_company):
     current_table = pd.read_csv(table)
@@ -351,4 +393,6 @@ if __name__ == '__main__':
         stock_variables = yaml.full_load(file)
 
     for company in stock_variables.keys():
-        process(stock_variables,company)
+        process_ltp_independent(company)
+        process_ltp(stock_variables,company)
+        process_ltp_independent(company)
